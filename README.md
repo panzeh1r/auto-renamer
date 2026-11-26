@@ -1,6 +1,6 @@
 # Fatura Yeniden Adlandırma Scripti
 
-PDF formatındaki faturaları okuyarak içlerinden **Faturayı Basan Şirket**, **Fatura No** ve **Fatura Tarihi** bilgilerini çıkarır ve dosyaları şu formatta yeniden adlandırır:
+PDF ve HTML formatındaki faturaları okuyarak içlerinden **Faturayı Basan Şirket** (ilk 2 kelime), **Fatura No** ve **Fatura Tarihi** (`GG.AA.YYYY`) bilgilerini çıkarır ve dosyaları şu formatta yeniden adlandırır:
 
 ```text
 Faturayı Basan Şirket - Fatura No - Fatura Tarihi.pdf

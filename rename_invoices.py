@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-PDF faturaları okuyup içindeki şirket adı, fatura numarası ve fatura tarihini
-çıkararak dosyaları 'Faturayı Basan Şirket - Fatura No - Fatura Tarihi.pdf'
+PDF ve HTML faturaları okuyup içindeki şirket adı, fatura numarası ve fatura tarihini
+çıkararak dosyaları 'Faturayı Basan Şirket - Fatura No - Fatura Tarihi.<uzantı>'
 formatında yeniden adlandırır.
 """
 
@@ -11,6 +11,7 @@ import argparse
 import re
 import sys
 from datetime import date, datetime
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import Optional
 
@@ -63,6 +64,48 @@ SKIP_COMPANY_LINE_RE = re.compile(
 )
 
 
+SUPPORTED_EXTENSIONS = {".pdf", ".html", ".htm"}
+
+
+class _HTMLTextExtractor(HTMLParser):
+    """HTML faturadan tablo ve satır yapısını koruyarak düz metin çıkarır."""
+
+    _SKIP_TAGS = {"script", "style", "head", "title", "svg"}
+    _BLOCK_TAGS = {"p", "div", "tr", "br", "li", "h1", "h2", "h3", "h4", "h5", "h6", "section", "header", "footer", "table"}
+    _CELL_TAGS = {"td", "th"}
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._parts: list[str] = []
+        self._skip_depth = 0
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, Optional[str]]]) -> None:
+        tag_lower = tag.lower()
+        if tag_lower in self._SKIP_TAGS:
+            self._skip_depth += 1
+        elif self._skip_depth == 0 and tag_lower in self._BLOCK_TAGS:
+            self._parts.append("\n")
+
+    def handle_endtag(self, tag: str) -> None:
+        tag_lower = tag.lower()
+        if tag_lower in self._SKIP_TAGS and self._skip_depth > 0:
+            self._skip_depth -= 1
+        elif self._skip_depth == 0:
+            if tag_lower in self._BLOCK_TAGS:
+                self._parts.append("\n")
+            elif tag_lower in self._CELL_TAGS:
+                self._parts.append("  ")
+
+    def handle_data(self, data: str) -> None:
+        if self._skip_depth == 0 and data:
+            self._parts.append(data)
+
+    def get_text(self) -> str:
+        raw = "".join(self._parts)
+        lines = [re.sub(r"[ \t]+", " ", line).strip() for line in raw.splitlines()]
+        return "\n".join(line for line in lines if line)
+
+
 def extract_text_from_pdf(pdf_path: Path, max_pages: int = 2) -> str:
     """PDF'in ilk sayfalarından metin çıkarır."""
     texts: list[str] = []
@@ -72,6 +115,33 @@ def extract_text_from_pdf(pdf_path: Path, max_pages: int = 2) -> str:
             if page_text.strip():
                 texts.append(page_text)
     return "\n".join(texts)
+
+
+def extract_text_from_html(html_path: Path) -> str:
+    """HTML fatura dosyasından metin çıkarır."""
+    raw_bytes = html_path.read_bytes()
+    html_content = ""
+    for encoding in ("utf-8-sig", "utf-8", "windows-1254", "iso-8859-9", "latin-1"):
+        try:
+            html_content = raw_bytes.decode(encoding)
+            break
+        except UnicodeDecodeError:
+            continue
+
+    parser = _HTMLTextExtractor()
+    parser.feed(html_content)
+    parser.close()
+    return parser.get_text()
+
+
+def extract_text_from_invoice(file_path: Path) -> str:
+    """Dosya uzantısına göre PDF veya HTML faturadan metin çıkarır."""
+    suffix = file_path.suffix.lower()
+    if suffix == ".pdf":
+        return extract_text_from_pdf(file_path)
+    if suffix in {".html", ".htm"}:
+        return extract_text_from_html(file_path)
+    raise ValueError(f"Desteklenmeyen dosya türü: {suffix}")
 
 
 def extract_invoice_number(text: str) -> Optional[str]:
@@ -239,26 +309,28 @@ def process_folder(
     recursive: bool = False,
     date_format: str = "%d.%m.%Y",
 ) -> None:
-    pattern = "**/*.pdf" if recursive else "*.pdf"
-    pdf_files = sorted(folder.glob(pattern))
+    iterator = folder.rglob("*") if recursive else folder.iterdir()
+    invoice_files = sorted(
+        p for p in iterator if p.is_file() and p.suffix.lower() in SUPPORTED_EXTENSIONS
+    )
 
-    if not pdf_files:
-        print(f"'{folder}' içinde PDF dosyası bulunamadı.")
+    if not invoice_files:
+        print(f"'{folder}' içinde PDF veya HTML fatura dosyası bulunamadı.")
         return
 
     renamed_count = 0
     skipped_count = 0
 
-    for pdf_path in pdf_files:
+    for file_path in invoice_files:
         try:
-            text = extract_text_from_pdf(pdf_path)
+            text = extract_text_from_invoice(file_path)
         except Exception as exc:
-            print(f"[HATA] {pdf_path.name}: PDF okunamadı ({exc})")
+            print(f"[HATA] {file_path.name}: Dosya okunamadı ({exc})")
             skipped_count += 1
             continue
 
         if not text.strip():
-            print(f"[ATLANDI] {pdf_path.name}: Metin çıkarılamadı (taranmış/görsel PDF olabilir).")
+            print(f"[ATLANDI] {file_path.name}: Metin çıkarılamadı (taranmış/görsel dosya olabilir).")
             skipped_count += 1
             continue
 
@@ -276,7 +348,7 @@ def process_folder(
             if not val
         ]
         if missing:
-            print(f"[ATLANDI] {pdf_path.name}: Eksik bilgi -> {', '.join(missing)}")
+            print(f"[ATLANDI] {file_path.name}: Eksik bilgi -> {', '.join(missing)}")
             skipped_count += 1
             continue
 
@@ -288,17 +360,17 @@ def process_folder(
             f"{sanitize_filename(formatted_date, max_length=20)}"
         )
 
-        target_path = build_unique_target(pdf_path.parent, new_stem, pdf_path.suffix, pdf_path)
+        target_path = build_unique_target(file_path.parent, new_stem, file_path.suffix, file_path)
 
-        if target_path == pdf_path:
-            print(f"[AYNI] {pdf_path.name}")
+        if target_path == file_path:
+            print(f"[AYNI] {file_path.name}")
             continue
 
         if dry_run:
-            print(f"[ÖNİZLEME] {pdf_path.name} -> {target_path.name}")
+            print(f"[ÖNİZLEME] {file_path.name} -> {target_path.name}")
         else:
-            pdf_path.rename(target_path)
-            print(f"[ADLANDIRILDI] {pdf_path.name} -> {target_path.name}")
+            file_path.rename(target_path)
+            print(f"[ADLANDIRILDI] {file_path.name} -> {target_path.name}")
         renamed_count += 1
 
     print(f"\nÖzet: {renamed_count} dosya {'adlandırılacak' if dry_run else 'adlandırıldı'}, {skipped_count} dosya atlandı.")
