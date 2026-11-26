@@ -330,7 +330,10 @@ def process_folder(
             continue
 
         if not text.strip():
-            print(f"[ATLANDI] {file_path.name}: Metin çıkarılamadı (taranmış/görsel dosya olabilir).")
+            print(
+                f"[ATLANDI - İNSAN MÜDAHALESİ GEREKLİ] {file_path.name}: "
+                "Metin çıkarılamadı (taranmış/görsel dosya olabilir), dosyaya dokunulmadı."
+            )
             skipped_count += 1
             continue
 
@@ -338,17 +341,21 @@ def process_folder(
         invoice_no = extract_invoice_number(text)
         invoice_date = extract_invoice_date(text)
 
-        missing = [
-            label
-            for label, val in (
-                ("Şirket", company),
-                ("Fatura No", invoice_no),
-                ("Fatura Tarihi", invoice_date),
-            )
-            if not val
+        formatted_date_str = invoice_date.strftime(date_format) if invoice_date else None
+        fields = [
+            ("Şirket", shorten_company_name(company) if company else None),
+            ("Fatura No", invoice_no),
+            ("Fatura Tarihi", formatted_date_str),
         ]
+        found = [f"{label} ({val})" for label, val in fields if val]
+        missing = [label for label, val in fields if not val]
+
         if missing:
-            print(f"[ATLANDI] {file_path.name}: Eksik bilgi -> {', '.join(missing)}")
+            if found:
+                detail = f"{', '.join(found)} çekildi ama {', '.join(missing)} başarısız"
+            else:
+                detail = f"{', '.join(missing)} başarısız"
+            print(f"[ATLANDI - İNSAN MÜDAHALESİ GEREKLİ] {file_path.name}: {detail} -> dosyaya dokunulmadı.")
             skipped_count += 1
             continue
 
