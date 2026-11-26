@@ -202,6 +202,14 @@ def _clean_company_candidate(raw: str) -> str:
     return cleaned
 
 
+def shorten_company_name(name: str, max_words: int = 2) -> str:
+    """Şirket adı ikiden fazla kelimeden oluşuyorsa ilk iki kelimeyi alır."""
+    words = name.split()
+    if len(words) > max_words:
+        return " ".join(words[:max_words])
+    return name
+
+
 def sanitize_filename(name: str, max_length: int = 80) -> str:
     """Dosya adında geçersiz olan karakterleri temizler."""
     sanitized = re.sub(r'[\\/:*?"<>|\r\n\t]+', " ", name)
@@ -229,7 +237,7 @@ def process_folder(
     folder: Path,
     dry_run: bool = False,
     recursive: bool = False,
-    date_format: str = "%Y-%m-%d",
+    date_format: str = "%d.%m.%Y",
 ) -> None:
     pattern = "**/*.pdf" if recursive else "*.pdf"
     pdf_files = sorted(folder.glob(pattern))
@@ -273,8 +281,9 @@ def process_folder(
             continue
 
         formatted_date = invoice_date.strftime(date_format)  # type: ignore[union-attr]
+        short_company = shorten_company_name(company)  # type: ignore[arg-type]
         new_stem = (
-            f"{sanitize_filename(company, max_length=60)} - "  # type: ignore[arg-type]
+            f"{sanitize_filename(short_company, max_length=60)} - "
             f"{sanitize_filename(invoice_no, max_length=35)} - "  # type: ignore[arg-type]
             f"{sanitize_filename(formatted_date, max_length=20)}"
         )
@@ -320,8 +329,8 @@ def main() -> None:
     )
     parser.add_argument(
         "--date-format",
-        default="%Y-%m-%d",
-        help="Dosya adındaki tarih formatı (varsayılan: %%Y-%%m-%%d, örn: %%d.%%m.%%Y)",
+        default="%d.%m.%Y",
+        help="Dosya adındaki tarih formatı (varsayılan: %%d.%%m.%%Y, örn: %%Y.%%m.%%d)",
     )
 
     args = parser.parse_args()

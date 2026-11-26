@@ -24,7 +24,7 @@ pip3 install -r requirements.txt
    python3 rename_invoices.py /faturalar/klasoru
    ```
 
-3. **Alt klasörlerle birlikte ve `GG.AA.YYYY` tarih formatıyla çalıştırma:**
+3. **Alt klasörlerle birlikte ve `YYYY.AA.GG` tarih formatıyla çalıştırma:**
    ```bash
-   python3 rename_invoices.py /faturalar/klasoru -r --date-format "%d.%m.%Y"
+   python3 rename_invoices.py /faturalar/klasoru -r --date-format "%Y.%m.%d"
    ```
